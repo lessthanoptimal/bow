@@ -1,1 +1,3 @@
 http://cs.brown.edu/courses/cs143/proj3/
+
+pyvlfeat-0.1.1a3
