@@ -57,8 +57,8 @@ def classifyNearestNeighbor( desc , classifierData ):
 
     hits = [0]*numLabels
     for idx,i in enumerate(indices.flat):
-        # hits[labels[i]] = hits[labels[i]] + 1 # uniform weighting
-        hits[labels[i]] = hits[labels[i]] + 1.0/(distance[0,idx]+0.2) # weight by distance
+        # hits[labels[i]] += 1 # uniform weighting
+        hits[labels[i]] += 1.0/(distance[0,idx]+0.2) # weight by distance
 
     return np.argmax(hits)
 

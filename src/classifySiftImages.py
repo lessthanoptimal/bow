@@ -1,7 +1,6 @@
 __author__ = 'pja'
 
 from create_input_set import findLabeledImages
-from math import *
 from sklearn.neighbors import NearestNeighbors
 import scipy
 import random
@@ -11,7 +10,7 @@ from vlfeat import *
 import numpy as np
 
 sift_conf = {'step':8,'size':4,'fast':True}
-kmeans_conf = {'K':400,'num_seeds':1,'max_niters':200}
+kmeans_conf = {'K':50,'num_seeds':1,'max_niters':200}
 maxTrainingImages = -1
 maxFeaturesPerImage = 150
 # number of neighbors in NN classifier
@@ -57,8 +56,9 @@ def computeAllWords( paths , verbose=False):
 
 # the descriptor , set of all words (column vectors), which word is being scored
 def score_match( desc , vocabulary , wordIndex ):
-    # score = np.sum(np.sqrt((desc-vocabulary[:,wordIndex])**2))/128.0
-    score = np.sum((desc-vocabulary[:,wordIndex])**2)/128.0
+    # TODO potential area to tweak to improve efficiency.  only effects cluster selection
+    score = np.sum(np.sqrt((desc-vocabulary[:,wordIndex])**2))/128.0
+    # score = np.sum((desc-vocabulary[:,wordIndex])**2)/128.0
     return score
     # score = 0.0
     # for i in xrange(128):
@@ -105,17 +105,17 @@ def create_vocabulary( words , verbose=False):
     return best_vocabulary
 
 # Finds the word in the vocabulary which is the best for the target
-def best_word( target , vocabulary , max_distance = float('inf')):
-    best_word = -1
-    best_score = float('inf')
-
-    for i in xrange(vocabulary.shape[1]):
-        score = score_match(target,vocabulary,i)
-        if score < best_score and score <= max_distance:
-            best_score = score
-            best_word = i
-
-    return best_word
+# def best_word( target , vocabulary , max_distance = float('inf')):
+#     best_word = -1
+#     best_score = float('inf')
+#
+#     for i in xrange(vocabulary.shape[1]):
+#         score = score_match(target,vocabulary,i)
+#         if score < best_score and score <= max_distance:
+#             best_score = score
+#             best_word = i
+#
+#     return best_word
 
 def compute_histogram( filePath , vocabulary ):
     K = kmeans_conf['K']
@@ -141,7 +141,7 @@ def compute_histogram( filePath , vocabulary ):
     #         histogram[bw] += 1
     # normalize the histogram so that it sums up to one
     total = float(sum(histogram))
-    return [x/total for x in histogram]
+    return [x/total for x in histogram]# todo any chance that normalizing the histogram is screwing up the results?
 
 
 class BowSiftKD:
@@ -264,6 +264,7 @@ class BowSiftNN:
 
         N = min(numNeighbors,len(scores))
         hits = [0]*self.numLabels
+        # TODO examine this to see what improves the results
         for i in xrange(N):
             # hits[scores[i][0]] += 1
             hits[scores[i][0]] += 1.0/(scores[i][1]+0.005)
@@ -284,8 +285,8 @@ def truncateFileList( labeled ):
 labeledTraining = truncateFileList(findLabeledImages("../brown/data/train"))
 labeledTest = truncateFileList(findLabeledImages("../brown/data/test"))
 
-classifier = BowSiftKD()
-# classifier = BowSiftNN(True)
+# classifier = BowSiftKD()
+classifier = BowSiftNN(True)
 
 classifier.train(labeledTraining)
 
@@ -308,9 +309,8 @@ print 'Faction Correct: '+str(totalCorrect/float(total))
 
 print 'Done!'
 
-# TODO Benchmark KD-Tree versus brute force
+# TODO implement using octave and latest version of vlfeat.  Does it produce the same results?
 # TODO explore "better" clustering on results.  Adjust K
-# TODO Create a generic class for classification
 # TODO Linear SVM classifier
 # TODO create a confusion matrix from results
 
