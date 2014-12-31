@@ -30,7 +30,7 @@ def convertImageToSingle(l):
 def compute_sift_words( filePath ):
     image = scipy.misc.imread(filePath)
     single = convertImageToSingle(image)
-    return vl_dsift(single,step=sift_conf['step'],size=sift_conf['size'],fast=sift_conf['fast'])
+    return vl_dsift(single,step=sift_conf['step'],size=sift_conf['size'],fast=sift_conf['fast'])[1]
 
 # Loads the entire training set and computes all the words in each image
 def computeAllWords( paths , verbose=False):
@@ -42,7 +42,7 @@ def computeAllWords( paths , verbose=False):
         if verbose:
             print '%{: f}'.format(100.0*(total/float(len(paths))))
 
-        [F,D]=compute_sift_words(filePath)
+        D=compute_sift_words(filePath)
 
         # randomly select N of them
         N = min(D.shape[1],maxFeaturesPerImage)
@@ -57,12 +57,13 @@ def computeAllWords( paths , verbose=False):
 
 # the descriptor , set of all words (column vectors), which word is being scored
 def score_match( desc , vocabulary , wordIndex ):
-    score = np.sum(np.sqrt((desc-vocabulary[:,wordIndex])**2))/128.0
+    # score = np.sum(np.sqrt((desc-vocabulary[:,wordIndex])**2))/128.0
+    score = np.sum((desc-vocabulary[:,wordIndex])**2)/128.0
     return score
     # score = 0.0
     # for i in xrange(128):
-    #     dx = desc[i] - words[i,wordIndex]
-    #     score += sqrt(dx * dx)
+    #     dx = desc[i] - vocabulary[i,wordIndex]
+    #     score += dx*dx
     #
     # return score / 128.0
 
@@ -120,92 +121,173 @@ def compute_histogram( filePath , vocabulary ):
     K = kmeans_conf['K']
 
     # find the words in the image
-    [F,D]=compute_sift_words(filePath)
+    D=compute_sift_words(filePath)
 
-    # TODO could compute histogram using distance here to improve accuracy?
-    # compute the histogram
+    # Much faster if the built in VL code is used here! Python equivalent is about 30x slower
+    bestWords = vl_ikmeanspush(D,vocabulary)
+
     histogram = [0]*K
     for i in xrange(D.shape[1]):
-        bw = best_word(D[:,i],vocabulary)
-        if bw >= 0:
-            histogram[bw] += 1
+        histogram[bestWords[i]] += 1
+
+    # shitB = vl_ikmeanshist(K,shitA)
+
+    # # TODO could compute histogram using distance here to improve accuracy?
+    # # compute the histogram
+    # histogram = [0]*K
+    # for i in xrange(D.shape[1]):
+    #     bw = best_word(D[:,i],vocabulary)
+    #     if bw >= 0:
+    #         histogram[bw] += 1
     # normalize the histogram so that it sums up to one
     total = float(sum(histogram))
     return [x/total for x in histogram]
 
-def trainNearestNeighbor( paths , vocabulary, numLabels, numNeighbors , verbose=False ):
-    labels = [image['label'] for image in paths]
 
-    x = []
-    for p in paths:
-        filePath = p['path']
-        if verbose:
-            print 'training histogram for '+filePath
-        x.append( compute_histogram(filePath,vocabulary))
+class BowSiftKD:
 
-    x = np.array(x)
-    # nbrs = NearestNeighbors(n_neighbors=numNeighbors, algorithm='ball_tree').fit(x)
-    nbrs = NearestNeighbors(n_neighbors=numNeighbors, algorithm='kd_tree').fit(x)
+    def train(self, labeled ):
+        dictionaryName = 'dictionary{0:d}.p'.format(kmeans_conf['K'])
+        nn_name = 'nndata{0:d}_NN{1:d}.p'.format(kmeans_conf['K'],numNeighbors)
 
-    return {'nbrs':nbrs,'labels':labels,'numLabels':numLabels}
+        try:
+            self.vocabulary = pickle.load(open( dictionaryName, "rb" ))
+            print 'Loaded vocabulary! file name = '+dictionaryName
+        except IOError:
+            print 'Computing words'
+            allWords = computeAllWords(labeled['paths'],True)
+            print 'Creating the vocabulary'
+            self.vocabulary = create_vocabulary(allWords,True)
+            pickle.dump(self.vocabulary,open( dictionaryName, "wb" ))
+        except:
+            raise
 
-def classifyNearestNeighbor( filePath , vocabulary , classifierData ):
-    nbrs = classifierData['nbrs']
-    labels = classifierData['labels']
-    numLabels = classifierData['numLabels']
+        try:
+            self.nn_data = pickle.load(open( nn_name, "rb" ))
+            print 'Loaded NN graph! file name = '+nn_name
+        except IOError:
+            print 'Computing histograms and NN graph from training set'
+            self.nn_data = self.trainNearestNeighbor(labeled['paths'],self.vocabulary,
+                                                     labeled['numLabels'],numNeighbors,False)
+            pickle.dump(self.nn_data,open( nn_name, "wb" ))
+        except:
+            raise
 
-    h = compute_histogram(filePath,vocabulary)
+    def trainNearestNeighbor( self, paths , vocabulary, numLabels, numNeighbors , verbose=False ):
+        labels = [image['label'] for image in paths]
 
-    distance,indices = nbrs.kneighbors(h)
+        x = []
+        for p in paths:
+            filePath = p['path']
+            if verbose:
+                print 'training histogram for '+filePath
+            x.append( compute_histogram(filePath,vocabulary))
 
-    hits = [0]*numLabels
-    for idx,i in enumerate(indices.flat):
-        # hits[labels[i]] = hits[labels[i]] + 1 # uniform weighting
-        hits[labels[i]] = hits[labels[i]] + 1.0/(distance[0,idx]+0.2) # weight by distance
+        x = np.array(x)
+        # nbrs = NearestNeighbors(n_neighbors=numNeighbors, algorithm='ball_tree').fit(x)
+        nbrs = NearestNeighbors(n_neighbors=numNeighbors, algorithm='kd_tree').fit(x)
 
-    return np.argmax(hits)
+        return {'nbrs':nbrs,'labels':labels,'numLabels':numLabels}
 
-labeledTraining = findLabeledImages("../brown/data/train")
+    def classify(self, filePath):
+        nbrs = self.nn_data['nbrs']
+        labels = self.nn_data['labels']
+        numLabels = self.nn_data['numLabels']
 
-# remove all but the first N images
-if maxTrainingImages > -1 and maxTrainingImages < len(labeledTraining['paths']):
-    random.shuffle(labeledTraining['paths'])
-    labeledTraining['paths'] = labeledTraining['paths'][0:maxTrainingImages]
+        h = compute_histogram(filePath,self.vocabulary)
 
-# Todo truncate
+        distance,indices = nbrs.kneighbors(h)
 
-dictionaryName = 'dictionary{0:d}.p'.format(kmeans_conf['K'])
-nn_name = 'nndata{0:d}_NN{1:d}.p'.format(kmeans_conf['K'],numNeighbors)
+        hits = [0]*numLabels
+        for idx,i in enumerate(indices.flat):
+            # hits[labels[i]] = hits[labels[i]] + 1 # uniform weighting
+            hits[labels[i]] = hits[labels[i]] + 1.0/(distance[0,idx]+0.2) # weight by distance
 
-try:
-    vocabulary = pickle.load(open( dictionaryName, "rb" ))
-    print 'Loaded vocabulary! file name = '+dictionaryName
-except IOError:
-    print 'Computing words'
-    allWords = computeAllWords(labeledTraining['paths'],True)
-    print 'Creating the vocabulary'
-    vocabulary = create_vocabulary(allWords,True)
-    pickle.dump(vocabulary,open( dictionaryName, "wb" ))
-    allWords = []
-except:
-    raise
+        return np.argmax(hits)
 
-try:
-    nn_data = pickle.load(open( nn_name, "rb" ))
-    print 'Loaded NN graph! file name = '+nn_name
-except IOError:
-    print 'Computing histograms and NN graph from training set'
-    nn_data = trainNearestNeighbor(labeledTraining['paths'],vocabulary,labeledTraining['numLabels'],numNeighbors,False)
-    pickle.dump(nn_data,open( nn_name, "wb" ))
-except:
-    raise
+class BowSiftNN:
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+
+    def train(self, labeled ):
+        dictionaryName = 'dictionary{0:d}.p'.format(kmeans_conf['K'])
+        histogramsName = 'histograms{0:d}.p'.format(kmeans_conf['K'])
+
+        self.numLabels = labeled['numLabels']
+
+        try:
+            self.vocabulary = pickle.load(open( dictionaryName, "rb" ))
+            print 'Loaded vocabulary! file name = '+dictionaryName
+        except IOError:
+            print 'Computing words'
+            allWords = computeAllWords(labeled['paths'],self.verbose)
+            print 'Creating the vocabulary'
+            self.vocabulary = create_vocabulary(allWords,self.verbose)
+            pickle.dump(self.vocabulary,open( dictionaryName, "wb" ))
+        except:
+            raise
+
+        try:
+            self.histograms = pickle.load(open( histogramsName, "rb" ))
+            print 'Loaded NN graph! file name = '+histogramsName
+        except IOError:
+            print 'Computing histograms and NN graph from training set'
+            self.histograms = self.trainHistograms(labeled['paths'])
+            pickle.dump(self.histograms,open( histogramsName, "wb" ))
+        except:
+            raise
+
+    def trainHistograms( self, paths ):
+        histograms = []
+        for p in paths:
+            filePath = p['path']
+            label = p['label']
+            if self.verbose:
+                print 'training histogram for '+filePath
+            h = compute_histogram(filePath,self.vocabulary)
+            histograms.append({'histogram':h,'label':label})
+
+        return histograms
+
+    def classify(self, filePath):
+
+        target = compute_histogram(filePath,self.vocabulary)
+
+        # brute force nearest-neighbor
+        scores = []
+
+        for h in self.histograms:
+            candidate = h['histogram']
+            scores.append((h['label'],np.sum(np.subtract(target,candidate)**2)))
+
+        scores = sorted(scores,key=lambda x: x[1])
+
+        N = min(numNeighbors,len(scores))
+        hits = [0]*self.numLabels
+        for i in xrange(N):
+            # hits[scores[i][0]] += 1
+            hits[scores[i][0]] += 1.0/(scores[i][1]+0.005)
+
+        return np.argmax(hits)
+
+
+def truncateFileList( labeled ):
+    # remove all but the first N images
+    if -1 < maxTrainingImages < len(labeled['paths']):
+        random.shuffle(labeled['paths'])
+        labeled['paths'] = labeled['paths'][0:maxTrainingImages]
+
+    return labeled
+
 
 # score the test set
-labeledTest = findLabeledImages("../brown/data/test")
+labeledTraining = truncateFileList(findLabeledImages("../brown/data/train"))
+labeledTest = truncateFileList(findLabeledImages("../brown/data/test"))
 
-if maxTrainingImages > -1 and maxTrainingImages < len(labeledTest['paths']):
-    random.shuffle(labeledTest['paths'])
-    labeledTest['paths'] = labeledTest['paths'][0:maxTrainingImages]
+classifier = BowSiftKD()
+# classifier = BowSiftNN(True)
+
+classifier.train(labeledTraining)
 
 total = 0
 totalCorrect = 0
@@ -213,7 +295,7 @@ for p in labeledTest['paths']:
     filePath = p['path']
     label = p['label']
     print 'Scoring '+filePath
-    found = classifyNearestNeighbor(filePath,vocabulary,nn_data)
+    found = classifier.classify(filePath)
     total += 1
     if found == label:
         totalCorrect += 1
