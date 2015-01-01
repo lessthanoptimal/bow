@@ -1,24 +1,16 @@
 more off
-disp "Loading File Paths"
-
-[trainSet,labels] = get_image_paths("../brown/data/train");
-[testSet,a] = get_image_paths("../brown/data/test");
-
-#trainSet = trainSet(1:30);
-
-disp "Converting Labels"
-
-trainSet = label_name2index(trainSet,labels);
-testSet = label_name2index(testSet,labels);
 
 global verboseFoo = 1
 global imageWidth = 16
-global numNeighbors = 40
-global numLabels = length(labels)
+global numNeighbors = 5
+global numLabels
 
-function tinyData = trainTinyClassifier( dataSet )
+function tinyData = trainTinyClassifier( dataSet , numLabels_ )
   global imageWidth
   global verboseFoo
+  global numLabels
+  
+  numLabels = numLabels_
   tinyData = struct([]);
   for i = 1:length(dataSet)
     d = dataSet(i);
@@ -54,27 +46,14 @@ function results = tinyClassifier( imagePath , tinyData )
   [~,results] = max(hist);
 end
 
-disp "Training Tiny"
-tinyData = trainTinyClassifier( trainSet );
-disp "Test Clasification"
-correct = 0;
-for i = 1:length(testSet)
-  found = tinyClassifier( testSet(i).path , tinyData );
-  expected = testSet(i).label;
-  if found == expected
-    correct = correct + 1;
-  end
-  if verboseFoo
-    disp(sprintf("Correct %5d out of %5d/%5d",correct,i,length(testSet)))
-  end
-end
+evaluate_classifier(@trainTinyClassifier,@tinyClassifier)
 
-disp(sprintf("Fraction Correct = %f",correct/length(testSet)))
 disp(sprintf("K-NN = %d width = %d",numNeighbors,imageWidth))
 
 printf "DONE!\n"
 
 # Fraction Correct = 0.233166 K = 1
+# Fraction Correct = 0.228141 K = 5
 # Fraction Correct = 0.223116 K = 10
 # Fraction Correct = 0.196985 K = 40
   
