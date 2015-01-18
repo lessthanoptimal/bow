@@ -1,12 +1,14 @@
 # Works with Octave 3.8.1 and VLFeat 0.9.19
+# Classifier which uses SIFT histogram and K-Nearest-Neighbor classifier
 
 more off
 addpath "/home/pja/projects/thirdparty/vlfeat-0.9.19/toolbox"
 vl_setup
 
 global verboseFoo = 1
-global numNeighbors = 15
+global numNeighbors = 5
 global kmeansClusters = 200
+global kmeansSeeds = 20
 global maxfeaturesPerImage = 150
 global smoothInput = 0 # magnification.  try 3.  disable <= 0 
 
@@ -38,10 +40,21 @@ function desc = describeImageSift( imagePath , numFeatures )
   end
 end
 
+function error = clusterError( descAll , I , cluster )
+  error = 0;
+  
+  for i = 1:size(descAll,2)
+    d = descAll(:,i);
+    c = cluster(:,I(i));
+    error = error + norm(double(d)-double(c));
+  end
+end  
+
 function clusters = clusterSiftDesc( trainSet )
   global kmeansClusters
   global maxfeaturesPerImage
   global verboseFoo
+  global kmeansSeeds
   
   # compute the descriptions for all input images
   descAll = [];
@@ -59,6 +72,24 @@ function clusters = clusterSiftDesc( trainSet )
     disp("Computing Clusters")
   end
   [clusters,I] = vl_ikmeans(descAll,kmeansClusters);
+  
+  # Try to find a better cluster by minimizing the distance
+  if kmeansSeeds > 1
+    bestClusters = clusters;
+    bestError = clusterError(descAll,I,clusters);
+    for i=2:kmeansSeeds
+      [clusters,I] = vl_ikmeans(descAll,kmeansClusters);
+      error = clusterError(descAll,I,clusters);
+      if error < bestError
+        bestError = error;
+        bestClusters = clusters;
+      end
+      
+      if verboseFoo
+        disp(sprintf("cluster error [%2d] = %8.1f best %8.1f",i,error,bestError))
+      end
+    end
+  end  
 end
 
 function desc = describeSiftHistogram( imagePath , clusters )
@@ -143,6 +174,7 @@ disp(sprintf("K-NN = %2d clusters = %3d  maxPerImage = %3d smooth = %d", ...
 # 0.492462  K-NN = 15 clusters = 50   maxPerImage = 150
 # 0.515243  K-NN =  5 clusters = 200  maxPerImage = 150
 # 0.500168  K-NN = 15 clusters = 200  maxPerImage = 150
+# 0.506198  K-NN = 15 clusters = 200  maxPerImage = 150 <-- clusters optimized
 # 0.486767  K-NN =  5 clusters = 400  maxPerImage = 150
 
 # 0.454271  K-NN = 5 clusters = 50    maxPerImage = 150 smooth = 3
