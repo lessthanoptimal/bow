@@ -5,7 +5,7 @@ function evaluate_classifier( funcTrain , funcClassify )
   [trainSet,labels] = get_image_paths("../brown/data/train");
   [testSet,~] = get_image_paths("../brown/data/test");
 
-  N = 0
+  N = 0;
   if N > 0
     trainSet = trainSet(randperm(length(trainSet),N));
     testSet = testSet(randperm(length(testSet),N));
@@ -17,19 +17,21 @@ function evaluate_classifier( funcTrain , funcClassify )
   testSet = label_name2index(testSet,labels);
   numLabels = length(labels)
   
-  disp "Training Tiny"
+  disp "Training Classifier"
   classifyData = funcTrain( trainSet , numLabels );
-  disp "Test Clasification"
+  disp "Test Classification"
   correct = 0;
   cm = zeros(numLabels,numLabels); # confusion matrix
   countLabel = zeros(numLabels,1);
   for i = 1:length(testSet)
     found = funcClassify( testSet(i).path , classifyData );
     expected = testSet(i).label;
-    cm(expected,found) = cm(expected,found) + 1;
-    countLabel(expected) = countLabel(expected) + 1;
-    if found == expected
-      correct = correct + 1;
+    if found >= 0
+      cm(expected,found) = cm(expected,found) + 1;
+      countLabel(expected) = countLabel(expected) + 1;
+      if found == expected
+        correct = correct + 1;
+      end
     end
     if verboseFoo
       disp(sprintf("Correct %5d out of %5d/%5d  guessed %2d actual %2d",correct,i,length(testSet),found,expected))
