@@ -3,14 +3,15 @@ __author__ = 'pja'
 from create_input_set import *
 import pickle
 from siftclassify import *
-from svmutil import *
-from svm import *
+from sklearn.multiclass import OneVsRestClassifier
+from sklearn.svm import LinearSVC
 
 import numpy as np
 
 sift_conf = {'step':8,'size':4,'fast':True}
 kmeans_conf = {'K':50,'num_seeds':1,'max_niters':200}
 maxFeaturesPerImage = 150
+svm_conf = {'dual':False,'C':0.1}
 
 # Number of images it will include in the training and test set
 maxTrainingImages = -1
@@ -67,110 +68,25 @@ def convertAndScaleToSvmFormat( scaleParam, histogram ):
         x[i] = (histogram[i]-low)/spread
     return x
 
-def convertToSvmFormatType( target , histograms ):
-    N = len(histograms)
-    y = [0]*N  # will be assigned values of 1 if target or -1 if not
-
-    for i in xrange(N):
-        if histograms[i]['label'] == target:
-            y[i] = 1
-        else:
-            y[i] = -1
-
-    return y
-
-def extractTrainOneVsOne( setA , setB , xAll , histograms):
-    y = []
-    x = []
-
-    for i in xrange( len(xAll)):
-        label = histograms[i]['label']
-        if label == setA:
-            y.append(1)
-        elif label == setB:
-            y.append(-1)
-        else:
-            continue
-        x.append( xAll[i] )
-    return y,x
-
-def trainOneVsOne( numLabels , histograms, svmParam ):
+def trainOneVsAll( histograms ):
 
     xAll = convertToSvmFormatFeature(histograms)
     scaleParam = computeScaleParameters(xAll)
     scaleFeatureData(xAll,scaleParam)
 
-    svm = []
-    for i in xrange(numLabels):
-        svmI = []
-        for j in xrange(i,numLabels):
-            print 'training '+str(i)+" , "+str(j)
-            y,x = extractTrainOneVsOne(i,j,xAll,histograms)
-            m = svm_train(y, x, svmParam)
-            svmI.append(m)
-        svm.append(svmI)
+    yAll = [ x['label'] for x in histograms ]
 
-    out = {'scaleParam':scaleParam,'svm':svm}
-    return out
-
-def predictOneVsOne( param , histogram ):
-    x = convertAndScaleToSvmFormat(param['scaleParam'],histogram)
-    # Convert a Python-format instance to svm_nodearray, a ctypes structure
-    x0, max_idx = gen_svm_nodearray(x)
-
-    svm = param['svm']
-    N = len(svm)
-    histogram = [0]*N
-
-    for i in xrange(N):
-        for j in xrange(i,N):
-            # print "predict {:d} {:d}".format(i,j)
-            m = svm[i][j-i]
-            label = libsvm.svm_predict(m, x0)
-            if label == 1:
-                histogram[i] += 1
-            elif label == -1:
-                histogram[j] += 1
-            else:
-                print "shit bug"
-
-    return np.argmax(histogram)
-
-
-
-def trainOneVsAll( numLabels , histograms, svmParam ):
-
-    x = convertToSvmFormatFeature(histograms)
-    scaleParam = computeScaleParameters(x)
-    scaleFeatureData(x,scaleParam)
-
-    svm = []
-    for i in xrange(numLabels):
-        print 'i = '+str(i)
-        y = convertToSvmFormatType(i,histograms)
-        m = svm_train(y, x, svmParam)
-        svm.append(m)
+    svm = OneVsRestClassifier(LinearSVC(dual=svm_conf['dual'],C=svm_conf['C']))
+    svm.fit(xAll,yAll)
 
     out = {'scaleParam':scaleParam,'svm':svm}
     return out
 
 def predictOneVsAll( param , histogram ):
-    # scale the input histogram
-    x = convertAndScaleToSvmFormat(param['scaleparam'],histogram)
+    x = convertAndScaleToSvmFormat(param['scaleParam'],histogram)
 
-    N = len(param['svm'])
-    for i in xrange(N):
-        m = param['svm'][i]
-
-        # Convert a Python-format instance to svm_nodearray, a ctypes structure
-        x0, max_idx = gen_svm_nodearray(x)
-        label = libsvm.svm_predict(m, x0)
-        if label == 1: # TODO change this.  It should be based off of some sort of error metric!
-            return i
-
-    return -1 # let it know it has no idea
-
-
+    svm = param['svm']
+    return svm.predict(x)
 
 class BowSiftLinearSVM:
     def __init__(self, svmParam , verbose=False):
@@ -205,8 +121,7 @@ class BowSiftLinearSVM:
         except:
             raise
 
-        # compute parameters for an 1-vs-1 SVM classifier
-        self.svm = trainOneVsOne(self.numLabels,self.histograms,self.svmParam)
+        self.svm = trainOneVsAll(self.histograms)
 
     def trainHistograms( self, paths ):
         histograms = []
@@ -224,27 +139,24 @@ class BowSiftLinearSVM:
 
         target = compute_histogram(filePath,self.vocabulary,kmeans_conf,sift_conf)
 
-        return predictOneVsOne(self.svm,target)
+        return predictOneVsAll(self.svm,target)
 
 # score the test set
 labeledTraining = truncateFileList(findLabeledImages("../brown/data/train"),maxTrainingImages)
 labeledTest = truncateFileList(findLabeledImages("../brown/data/test"),maxTrainingImages)
 
-# kmeans_conf = {'K':50,'num_seeds':1,'max_niters':200}
-# '-s 0 -t 2 -c 200 -g 1'    scaling 0.622
-# '-s 0 -t 2 -c 200 -g 1' no scaling 0.630
-# '-s 0 -t 2 -c 200 -g 2'    scaling 0.629
-# '-s 0 -t 2 -c 2 -g 2'      scaling 0.636
-# '-s 0 -t 2 -c 2000 -g 2'   scaling 0.629
-# '-s 0 -t 2 -c 0.1 -g 2'    scaling 0.538
+# Linear one-vs-all  {'K':50,'num_seeds':1,'max_niters':200}
+# '-s 0 -t 2 -c 2 -g 2' {'dual':True,'C':0.01}        0.523
+# '-s 0 -t 2 -c 2 -g 2' {'dual':True,'C':0.1}         0.589
+# '-s 0 -t 2 -c 2 -g 2' {'dual':True,'C':1}           0.614
+# '-s 0 -t 2 -c 2 -g 2' {'dual':False,'C':10}         0.612
 
-# kmeans_conf = {'K':400,'num_seeds':1,'max_niters':200}
-# '-s 0 -t 2 -c 2 -g 2'      scaling 0.364
-# '-s 0 -t 2 -c 1e5 -g 2'    scaling 0.364
+# Linear one-vs-all  {'K':400,'num_seeds':1,'max_niters':200}
+# '-s 0 -t 2 -c 2 -g 2' {'dual':False,'C':0.01}       0.666
+# '-s 0 -t 2 -c 2 -g 2' {'dual':False,'C':0.1}        0.705
+# '-s 0 -t 2 -c 2 -g 2' {'dual':False,'C':10}         0.623
+# '-s 0 -t 2 -c 2 -g 2' {'dual':False,'C':100}        0.615
 
-evaluateClassifier(BowSiftLinearSVM('-s 0 -t 2 -c 1e5 -g 2',True),labeledTraining,labeledTest)
-
-# TODO
-# TODO SVM improve training to avoid over fitting
+evaluateClassifier(BowSiftLinearSVM('-s 0 -t 2 -c 2 -g 2',True),labeledTraining,labeledTest)
 
 print 'Done!'

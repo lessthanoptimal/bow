@@ -57,8 +57,8 @@ def evaluateClassifier( classifier , labeledTraining , labeledTest ):
         if found == label:
             totalCorrect += 1
 
-        print '  evaluated {:5d} / {:5d}  correct {:.3f}  unknown {:.3f}'.\
-            format(total, len(labeledTest['paths']), totalCorrect/float(total),totalUnknown/float(total))
+        print '  evaluated {:5d} / {:5d}  correct {:.3f}  unknown {:.3f}  actual label {:d}'.\
+            format(total, len(labeledTest['paths']), totalCorrect/float(total),totalUnknown/float(total),label)
 
     for i in xrange(numLabels):
         for j in xrange(numLabels):

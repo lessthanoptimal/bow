@@ -23,7 +23,7 @@ def compute_sift_words( filePath , sift_conf):
     single = convertImageToSingle(image)
     return vl_dsift(single,step=sift_conf['step'],size=sift_conf['size'],fast=sift_conf['fast'])[1]
 
-# Loads the entire training set and computes all the words in each image
+# Loads the entire training set and computes all the words in each image as one big set
 def computeAllWords( paths , maxFeaturesPerImage, sift_conf, verbose=False):
     words = numpy.zeros((128,0),dtype=numpy.uint8)
     total = 0
@@ -45,6 +45,31 @@ def computeAllWords( paths , maxFeaturesPerImage, sift_conf, verbose=False):
         words = numpy.hstack([words,D])
 
     return words
+
+# For each image in the path compute all the features and return them in a labeled set
+def computeImageVLFeats( paths , maxFeaturesPerImage, sift_conf, verbose=False):
+    output = []
+    words = numpy.zeros((128,0),dtype=numpy.uint8)
+    total = 0
+    for p in paths:
+        filePath = p['path']
+        total += 1
+        if verbose:
+            print '%{: f}'.format(100.0*(total/float(len(paths))))
+
+        D=compute_sift_words(filePath,sift_conf)
+
+        # randomly select N of them
+        if 0 < maxFeaturesPerImage < D.shape[1]:
+            N = min(D.shape[1],maxFeaturesPerImage)
+            set=range(D.shape[1])
+            random.shuffle(set)
+            D = D[:,set[0:N]]
+
+        # Add the new words onto the stack
+        output.append( {'label':p['label'],'features':D})
+
+    return output
 
 # the descriptor , set of all words (column vectors), which word is being scored
 def score_match( desc , vocabulary , wordIndex ):
@@ -95,19 +120,6 @@ def create_vocabulary( words , kmeans_conf, verbose=False):
             print 'Worse score on iteration '+str(i)
 
     return best_vocabulary
-
-# Finds the word in the vocabulary which is the best for the target
-# def best_word( target , vocabulary , max_distance = float('inf')):
-#     best_word = -1
-#     best_score = float('inf')
-#
-#     for i in xrange(vocabulary.shape[1]):
-#         score = score_match(target,vocabulary,i)
-#         if score < best_score and score <= max_distance:
-#             best_score = score
-#             best_word = i
-#
-#     return best_word
 
 def compute_histogram( filePath , vocabulary , kmeans_conf, sift_conf ):
 

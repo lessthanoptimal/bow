@@ -72,7 +72,7 @@ function siftData = trainSiftLinearSVM( trainSet , numLabels )
     end
     bestFMeas = 0;
     for j=1:numSvnTrainSeeds
-      [w b info] = vl_svmtrain(X, Y, lambda, 'MaxNumIterations', maxIter);
+      [w b info] = vl_svmtrain(X, Y, lambda, 'MaxNumIterations', maxIter, 'Epsilon',1e-4);
       [~,~,~, scores] = vl_svmtrain(X, Y, lambda, 'model', w, 'bias', b, 'solver', 'none');
       TP = sum(scores(Y==1)>0);
       FP = sum(scores(Y==0)>0);
@@ -88,7 +88,6 @@ function siftData = trainSiftLinearSVM( trainSet , numLabels )
       end
       #disp(sprintf("SVM Training[%2d] = %f",j,Fmeas))
     end
-    #keyboard
 
     svmParam = struct;
     svmParam.w = bestW;
@@ -98,6 +97,8 @@ function siftData = trainSiftLinearSVM( trainSet , numLabels )
     [~,~,~, scores] = vl_svmtrain(X, Y, lambda, 'model', bestW, 'bias', bestB, 'solver', 'none') ;
     disp(sprintf("   total true correct = %d out of %d",sum(scores(Y==1)>0),sum(Y==1)))
   end
+
+  #keyboard
 
   siftData.clusters = clusters;
   siftData.numLabels = numLabels;
@@ -132,8 +133,6 @@ evaluate_classifier(@trainSiftLinearSVM,@classifierSiftLinearSVM)
 disp(sprintf("lambda = %f clusters = %3d  maxPerImage = %3d smooth = %d", ...
   lambda,kmeansClusters,maxFeaturesPerImage,smoothInput))
 
-# 0.527303  lambda = 0.001000 clusters = 200  maxPerImage = 150
-# 0.661642  lambda = 0.000100 clusters = 200  maxPerImage = 150
-# 0.601005  lambda = 0.000010 clusters = 200  maxPerImage = 150
-
 # 0.673367  lambda = 0.000100 clusters = 400  maxPerImage = 150
+# 0.676047  lambda = 0.000100 clusters = 400  maxPerImage = 150
+# 0.624791  lambda = 0.001000 clusters = 400  maxPerImage = 150
